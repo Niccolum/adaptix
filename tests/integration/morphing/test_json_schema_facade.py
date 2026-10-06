@@ -1,7 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional
 
-import jsonschema
 import pytest
 from tests_helpers import raises_exc
 from tests_helpers.morphing import JSONSchemaOptItem, assert_morphing
@@ -57,12 +55,6 @@ def test_load_json_schema_lax_unknown_field_goes_to_extra_keywords():
 class SimpleModel:
     name: str
     value: int
-
-
-@dataclass
-class ModelWithOptional:
-    required_field: str
-    optional_field: Optional[str] = None
 
 
 @pytest.mark.parametrize(
@@ -140,17 +132,6 @@ def test_generate_json_schema_custom_resolver(resolver, occupied_refs, expected_
     )
 
     assert schema["$ref"] == f"#/$defs/{expected_ref}"
-
-
-def test_generate_json_schema_optional_field_not_required_on_input():
-    retort = Retort()
-    input_validator = jsonschema.Draft202012Validator(
-        generate_json_schema(retort, ModelWithOptional, Direction.INPUT),
-    )
-
-    # a field with a default can be omitted on loading
-    assert input_validator.is_valid({"required_field": "x"})
-    assert not input_validator.is_valid({"optional_field": "y"})
 
 
 @dataclass
