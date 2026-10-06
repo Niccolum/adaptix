@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
-import pytest
-from tests_helpers.morphing import JSONSchemaFork, assert_morphing
+from tests_helpers import raises_exc
+from tests_helpers.morphing import JSONSchemaOptItem, assert_morphing
 
 from adaptix import Chain, P, ProviderNotFoundError, Retort, dumper, json_schema, loader
 from adaptix._internal.definitions import Direction
@@ -22,41 +22,34 @@ _PRODUCT_DATA = {"name": "test", "price": 1.5}
 _PRODUCT_LOADED = Product(name="test", price=1.5)
 
 
-def _product_schema(name_prop: dict, price_prop: dict) -> JSONSchemaFork:
-    def _make(product_extra: dict = {}) -> dict:  # noqa: B006
-        return {
-            "$ref": "#/$defs/Product",
-            "$schema": DIALECT_2020_12,
-            "$defs": {
-                "Product": {
-                    "title": "Product",
-                    "type": "object",
-                    "required": ["name", "price"],
-                    "properties": {
-                        "name": name_prop,
-                        "price": price_prop,
-                    },
-                    **product_extra,
+def _product_schema(name_prop: dict, price_prop: dict) -> dict:
+    return {
+        "$ref": "#/$defs/Product",
+        "$schema": DIALECT_2020_12,
+        "$defs": {
+            "Product": {
+                "title": "Product",
+                "type": "object",
+                "required": ["name", "price"],
+                "properties": {
+                    "name": name_prop,
+                    "price": price_prop,
                 },
+                "additionalProperties": JSONSchemaOptItem(input=True),
             },
-        }
-
-    return JSONSchemaFork(
-        input=_make({"additionalProperties": True}),
-        output=_make(),
-    )
+        },
+    }
 
 
 _DEFAULT_SCHEMA = _product_schema({"type": "string"}, {"type": "number"})
 
 
-def _product_schema_with_str_def(name_prop: dict, price_prop: dict, def_name: str) -> JSONSchemaFork:
-    fork = _product_schema(name_prop, price_prop)
-    str_def = {def_name: {"type": "string"}}
-    return JSONSchemaFork(
-        input={**fork.input, "$defs": {**fork.input["$defs"], **str_def}},
-        output={**fork.output, "$defs": {**fork.output["$defs"], **str_def}},
-    )
+def _product_schema_with_str_def(name_prop: dict, price_prop: dict, def_name: str) -> dict:
+    schema = _product_schema(name_prop, price_prop)
+    return {
+        **schema,
+        "$defs": {**schema["$defs"], def_name: {"type": "string"}},
+    }
 
 
 def test_json_schema_explicit_replaces_inferred():
@@ -119,8 +112,16 @@ def test_erase_json_schema_on_loader_raises_error():
         loader(str, lambda x: x, json_schema=EraseJSONSchema()),
     ])
 
-    with pytest.raises(ProviderNotFoundError):
-        generate_json_schema(retort, Product, Direction.INPUT)
+    raises_exc(
+        ProviderNotFoundError(
+            f"Cannot produce JSONSchema for type {Product}",
+            "  × Cannot create JSON Schema for model. JSON Schemas for some fields cannot be created\n"
+            "  │ Location: ‹Product›\n"
+            "  ╰──▷ JSON Schema is erased\n"
+            "       Location: ‹Product.name: str›",
+        ),
+        lambda: generate_json_schema(retort, Product, Direction.INPUT),
+    )
 
 
 def test_erase_json_schema_on_dumper_raises_error():
@@ -128,8 +129,16 @@ def test_erase_json_schema_on_dumper_raises_error():
         dumper(str, lambda x: x, json_schema=EraseJSONSchema()),
     ])
 
-    with pytest.raises(ProviderNotFoundError):
-        generate_json_schema(retort, Product, Direction.OUTPUT)
+    raises_exc(
+        ProviderNotFoundError(
+            f"Cannot produce JSONSchema for type {Product}",
+            "  × \n"
+            "  │ Location: ‹Product›\n"
+            "  ╰──▷ JSON Schema is erased\n"
+            "       Location: ‹Product.name: str›",
+        ),
+        lambda: generate_json_schema(retort, Product, Direction.OUTPUT),
+    )
 
 
 def test_patch_merge_with_adds_description():
